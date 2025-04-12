@@ -4,10 +4,10 @@ Embedding_matrix.pkl
 model.h5
 model.keras
 encoded.pkl
-encoded_train_impages.pkl
+encoded_train_images.pkl
 output.avi
 Prepro.py
 screenshot.png
 speech.mp3
 Tool.py
-dataset
+dataseta
