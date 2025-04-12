@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Ảnh và Dự Đoán</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        
+        .upload-area {
+            border: 2px dashed #ccc;
+            padding: 40px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            cursor: pointer;
+            background-color: #f9f9f9;
+            transition: all 0.3s;
+        }
+        
+        .upload-area:hover {
+            border-color: #4285f4;
+            background-color: #f0f7ff;
+        }
+        
+        .upload-area p {
+            color: #666;
+            margin: 10px 0;
+        }
+        
+        .btn-upload {
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            margin: 10px 0;
+        }
+        
+        .btn-upload:hover {
+            background-color: #2b6de0;
+        }
+        
+        .image-preview {
+            max-width: 100%;
+            margin-top: 20px;
+            position: relative;
+            display: none;
+        }
+        
+        .image-preview img {
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        .prediction-result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #e0f7fa;
+            display: none;
+            font-size: 18px;
+            color: #00695c;
+        }
+        
+        .loading {
+            display: none;
+            margin: 20px auto;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #4285f4;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Hệ Thống Mô Tả Ảnh Tự Động</h1>
+        
+        <div class="upload-area" id="drop-area">
+            <p>Kéo và thả ảnh vào đây hoặc</p>
+            <button class="btn-upload" id="uploadBtn">Chọn ảnh từ thiết bị</button>
+            <input type="file" id="fileInput" accept="image/*" style="display: none;">
+            <p>Hỗ trợ: JPG, PNG, GIF (tối đa 5MB)</p>
+        </div>
+        
+        <div class="loading" id="loading"></div>
+        
+        <div class="image-preview" id="imagePreview">
+            <img id="preview" src="" alt="Ảnh xem trước">
+        </div>
+        
+        <div class="prediction-result" id="predictionResult">
+            <p><strong>Dự đoán:</strong> <span id="predictionText"></span></p>
+        </div>
+    </div>
+    
+    <script>
+        // Lấy các element cần thiết
+        const dropArea = document.getElementById('drop-area');
+        const fileInput = document.getElementById('fileInput');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const imagePreview = document.getElementById('imagePreview');
+        const preview = document.getElementById('preview');
+        const predictionResult = document.getElementById('predictionResult');
+        const predictionText = document.getElementById('predictionText');
+        const loading = document.getElementById('loading');
+        
+        // Xử lý sự kiện click nút Upload
+        uploadBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+        
+        // Xử lý khi chọn file
+        fileInput.addEventListener('change', handleFile);
+        
+        // Xử lý kéo thả file
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropArea.addEventListener(eventName, highlight, false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, unhighlight, false);
+        });
+        
+        function highlight() {
+            dropArea.style.borderColor = '#4285f4';
+            dropArea.style.backgroundColor = '#f0f7ff';
+        }
+        
+        function unhighlight() {
+            dropArea.style.borderColor = '#ccc';
+            dropArea.style.backgroundColor = '#f9f9f9';
+        }
+        
+        dropArea.addEventListener('drop', handleDrop, false);
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            
+            if (files.length) {
+                handleFile({ target: { files } });
+            }
+        }
+        
+        function handleFile(e) {
+            const file = e.target.files[0];
+            
+            if (!file) return;
+            
+            // Kiểm tra loại file
+            const fileType = file.type;
+            if (!fileType.match('image.*')) {
+                alert('Vui lòng chọn file ảnh!');
+                return;
+            }
+            
+            // Kiểm tra kích thước file (tối đa 5MB)
+            if (file.size > 5 * 1024 * 1024) {
+                alert('Kích thước file quá lớn. Vui lòng chọn ảnh nhỏ hơn 5MB!');
+                return;
+            }
+            
+            // Hiển thị ảnh xem trước
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                preview.src = event.target.result;
+                imagePreview.style.display = 'block';
+                
+                // Hiển thị loading và mô phỏng xử lý
+                loading.style.display = 'block';
+                predictionResult.style.display = 'none';
+                
+                // Mô phỏng xử lý ảnh (thay thế bằng API thực tế sau này)
+                setTimeout(() => {
+                    loading.style.display = 'none';
+                    predictionResult.style.display = 'block';
+                    
+                    // Đây là kết quả mẫu, trong thực tế sẽ thay bằng kết quả từ model
+                    const samplePredictions = [
+                        "Một người đang đứng trên bãi biển đầy nắng.",
+                        "Chú chó đang chạy trong công viên xanh mát.",
+                        "Một đĩa thức ăn ngon đặt trên bàn gỗ.",
+                        "Một tòa nhà cao tầng trong thành phố hiện đại.",
+                        "Cảnh hoàng hôn đẹp trên biển với những đám mây cam."
+                    ];
+                    
+                    predictionText.textContent = samplePredictions[Math.floor(Math.random() * samplePredictions.length)];
+                }, 1500);
+            };
+            
+            reader.readAsDataURL(file);
+        }
+    </script>
+</body>
+</html>

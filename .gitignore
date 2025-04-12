@@ -1,0 +1,12 @@
+cp.ckpt.weights.h5
+cp.weights.h5
+Embedding_matrix.pkl
+model.h5
+model.keras
+encoded.pkl
+encoded_train_impages.pkl
+output.avi
+Prepro.py
+screenshot.png
+speech.mp3
+Tool.py
