@@ -1,43 +1,36 @@
+from flask import Flask, request, jsonify, render_template
 import pandas as pd
-import glob
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from time import time
-from numpy import array
 import tensorflow as tf
 from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.applications.inception_v3 import InceptionV3
 from tensorflow.keras.models import Model
 from tensorflow.keras.models import load_model
 from keras.applications.inception_v3 import preprocess_input
 import re
 from gtts import gTTS
-from IPython.display import Audio
 import googletrans
 import asyncio
 import nest_asyncio
-from pydub.utils import which
-
 from pydub import AudioSegment
 from pydub.playback import play
 import os
 import cv2
 from io import BytesIO
-# import pyttsx3
-# from playsound import playsound
+import base64
 
-# tts_engine=pyttsx3.init()
-# Try reading the file with a different encoding, such as 'latin1'
+app = Flask(__name__)
+
+# Đoạn code model của bạn
 try:
     df = pd.read_csv("D:\\Python Project\\DATN\\dataset\\caption.csv", encoding='latin1')
 except UnicodeDecodeError:
-    # If 'latin1' doesn't work, try 'utf-16'
     try:
         df = pd.read_csv("D:\\Python Project\\DATN\\dataset\\caption.csv", encoding='utf-16')
     except UnicodeDecodeError:
-        # If neither 'latin1' nor 'utf-16' work, try 'ISO-8859-1'
         df = pd.read_csv("D:\\Python Project\\DATN\\dataset\\caption.csv", encoding='ISO-8859-1')
 
 # model needs to be defined before being used
@@ -49,7 +42,7 @@ model_new = Model(model.input, model.layers[-2].output)
 # Image embedding thành vector (2048, )
 def encode(image):
     # Convert all the images to size 299x299 as expected by the inception v3 model
-    img = np.resize(image, (299, 299, 3 ))
+    img = np.resize(image, (299, 299, 3))
     # Add one more dimension
     img = np.expand_dims(img, axis=0)
     # preprocess the images using preprocess_input() from inception module
@@ -77,6 +70,7 @@ def caption_preprocessing(text, remove_digits=True):
   # insert 'startseq', 'endseq'
   text = 'startseq ' + text + ' endseq'
   return text
+
 df['caption(English)'] = df['caption(English)'].apply(caption_preprocessing)
 
 word_counts = {}  # a dict : { word : number of appearances}
@@ -93,7 +87,6 @@ for text in df['caption(English)']:
 word_count_threshold = 1
 vocab = [w for w in word_counts if word_counts[w] >= word_count_threshold]
 
-
 i2w = {}
 w2i = {}
 
@@ -103,19 +96,8 @@ for w in vocab:
     i2w[id] = w
     id += 1
 
-
-# images = {}
-# captions = {}
-
-# start = time()
-# for i in range(len(df)):
-#   images[df['image'][i]] = np.array(Image.open(image_path + df['image'][i])) # Make sure 'image_path' is correctly defined
-#   try:
-#     captions[df['image'][i]].append(df['caption(English)'][i])
-#   except:
-#     captions[df['image'][i]] = [df['caption(English)'][i]]
-
-MyModel= tf.keras.models.load_model('D:\Python Project\DATN\model.keras')
+# Load model của bạn
+MyModel = tf.keras.models.load_model('D:\\Python Project\\DATN\\model.keras')
 
 def TestingBeamSearch(photo, beam_width=3):
     sequences = [[list(), 0.0]]  # Initialize with an empty sequence and score of 0.0
@@ -140,68 +122,6 @@ def TestingBeamSearch(photo, beam_width=3):
     final_sequence = [word for word in final_sequence if word not in ['startseq', 'endseq']]
     return ' '.join(final_sequence)
 
-
-
-try:
-    screenshot_filename = 'D:\\Python Project\\DATN\\test.jpg'  # Use the screenshot file saved earlier
-    img = Image.open(screenshot_filename)
-    # Assuming 'encode' and 'TestingBeamSearch' functions are defined as in your previous code
-    image = encode(np.array(img))  # Encode the image
-    image = image.reshape((1, 2048))
-    predict = TestingBeamSearch(photo=image)
-    print(f"Predicted caption: {predict}")
-except Exception as e:
-    print(f"Error processing image: {e}")
-
-# # Khởi tạo video capture từ camera mặc định
-# cap = cv2.VideoCapture(0)
-# if not cap.isOpened():
-#     print("Không thể mở camera")
-#     exit()
-
-# # Lấy kích thước khung hình
-# frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-# frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-# # Đặt FPS và codec
-# fps = 30
-# fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-# out = cv2.VideoWriter('output.avi', fourcc, fps, (frame_width, frame_height))
-
-# # Biến để theo dõi thời gian và trạng thái chụp
-# start_time = time()
-# delay = 5  # Thời gian chờ trước khi chụp (giây)
-# has_captured = False  # Cờ để đảm bảo chỉ chụp một lần
-
-# while True:
-#     ret, frame = cap.read()
-#     if not ret:
-#         print("Không nhận được khung hình. Kết thúc...")
-#         break
-    
-#     # Ghi khung hình vào video
-#     out.write(frame)
-    
-#     # Hiển thị khung hình
-#     cv2.imshow('Camera Feed', frame)
-    
-#     # Kiểm tra thời gian để chụp ảnh một lần
-#     current_time = time()
-#     if not has_captured and (current_time - start_time >= delay):
-#         screenshot_filename = 'screenshot.png'
-#         cv2.imwrite(screenshot_filename, frame)
-#         print(f"Đã tự động lưu ảnh chụp màn hình: {screenshot_filename}")
-#         has_captured = True  # Đặt cờ để không chụp lại
-    
-#     # Thoát khi nhấn 'q'
-#     if has_captured:
-#         break
-
-# # Giải phóng tài nguyên
-# cap.release()
-# out.release()
-# cv2.destroyAllWindows()
-
 # Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
 
@@ -211,7 +131,7 @@ async def translate_text(text, target_language='vi'):
     translated = await translator.translate(text, dest=target_language)
     return translated.text
 
-def text_to_speech_translation(text, target_language='vi'):
+def generate_audio(text, target_language='vi'):
     try:
         loop = asyncio.get_event_loop()
         translated_text = loop.run_until_complete(translate_text(text, target_language))
@@ -219,16 +139,52 @@ def text_to_speech_translation(text, target_language='vi'):
         tts = gTTS(text=translated_text, lang=target_language)
         mp3_fp = BytesIO()
         tts.write_to_fp(mp3_fp)
-        
         mp3_fp.seek(0)
-        audio = AudioSegment.from_file(mp3_fp, format="mp3")
-        play(audio)
         
+        # Encode audio to base64 for sending to frontend
+        audio_base64 = base64.b64encode(mp3_fp.read()).decode('utf-8')
+        return {
+            'original_text': text,
+            'translated_text': translated_text,
+            'audio_base64': audio_base64
+        }
     except Exception as e:
-        print(f"Error in text-to-speech: {e}")
+        return {
+            'error': str(e)
+        }
 
-if predict:
-    text_to_speech_translation(predict)
-    # os.system(f"start {audio_file}")  # Automatically play the audio file
-else:
-    print("No prediction available for text-to-speech.")
+# Route để render template HTML
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+# API endpoint để xử lý upload ảnh
+@app.route('/predict', methods=['POST'])
+def predict():
+    if 'image' not in request.files:
+        return jsonify({'error': 'Không tìm thấy file ảnh'}), 400
+    
+    file = request.files['image']
+    img = Image.open(file.stream)
+    
+    try:
+        # Xử lý ảnh
+        image = encode(np.array(img))
+        image = image.reshape((1, 2048))
+        
+        # Dự đoán caption
+        prediction = TestingBeamSearch(photo=image)
+        
+        # Tạo audio
+        audio_data = generate_audio(prediction)
+        
+        return jsonify({
+            'prediction': prediction,
+            'translation': audio_data.get('translated_text', ''),
+            'audio': audio_data.get('audio_base64', '')
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
