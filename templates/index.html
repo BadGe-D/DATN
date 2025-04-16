@@ -111,7 +111,7 @@
             display: none;
         }
         
-        #audioStatus {
+        #audioStatus, #suggestionAudioStatus {
             margin-bottom: 10px;
             color: #0277bd;
         }
@@ -133,6 +133,25 @@
         
         .play-button:active {
             transform: scale(0.98);
+        }
+        
+        .suggestion-result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #fff8e1;
+            display: none;
+            font-size: 18px;
+            color: #e65100;
+        }
+        
+        .suggestion-audio-player {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #fffde7;
+            border-radius: 8px;
+            text-align: center;
+            display: none;
         }
     </style>
 </head>
@@ -163,6 +182,15 @@
             </div>
         </div>
         
+        <div class="suggestion-result" id="suggestionResult">
+            <p><strong>Gợi ý:</strong> <span id="suggestionText"></span></p>
+            <div class="suggestion-audio-player" id="suggestionAudioPlayer">
+                <p id="suggestionAudioStatus">Đang chuẩn bị âm thanh gợi ý...</p>
+                <button class="play-button" id="playSuggestionButton">Phát Lại Gợi Ý</button>
+                <audio id="suggestionAudioElement" style="display: none;"></audio>
+            </div>
+        </div>
+        
     </div>
     
     <script>
@@ -181,7 +209,16 @@
         const playButton = document.getElementById('playButton');
         const audioElement = document.getElementById('audioElement');
         
+        // Thêm các phần tử mới cho phần gợi ý
+        const suggestionResult = document.getElementById('suggestionResult');
+        const suggestionText = document.getElementById('suggestionText');
+        const suggestionAudioPlayer = document.getElementById('suggestionAudioPlayer');
+        const suggestionAudioStatus = document.getElementById('suggestionAudioStatus');
+        const playSuggestionButton = document.getElementById('playSuggestionButton');
+        const suggestionAudioElement = document.getElementById('suggestionAudioElement');
+        
         let audioBase64 = ''; // Biến lưu trữ audio dạng base64
+        let suggestionAudioBase64 = ''; // Biến lưu trữ audio gợi ý dạng base64
         
         // Xử lý sự kiện click nút Upload
         uploadBtn.addEventListener('click', () => {
@@ -258,6 +295,8 @@
                 loading.style.display = 'block';
                 predictionResult.style.display = 'none';
                 audioPlayer.style.display = 'none';
+                suggestionResult.style.display = 'none';
+                suggestionAudioPlayer.style.display = 'none';
                 
                 // Gửi ảnh lên server để xử lý
                 uploadImage(file);
@@ -286,8 +325,13 @@
                 
                 // Hiển thị kết quả
                 predictionText.textContent = data.prediction;
-
                 translationText.textContent = data.translation;
+                
+                // Hiển thị gợi ý nếu có
+                if (data.suggestion) {
+                    suggestionResult.style.display = 'block';
+                    suggestionText.textContent = data.suggestion;
+                }
                 
                 // Xử lý phát âm thanh
                 if (data.audio) {
@@ -308,7 +352,14 @@
                     
                     // Xử lý sự kiện kết thúc
                     audioElement.onended = function() {
-                        audioStatus.textContent = 'Phát âm thanh hoàn tất. Nhấn nút để phát lại.';
+                        audioStatus.textContent = 'Phát âm thanh hoàn tất.';
+                        
+                        // Sau khi phát xong bản dịch, phát âm thanh gợi ý nếu có
+                        if (data.audio_suggestion) {
+                            setTimeout(() => {
+                                suggestionAudioElement.play();
+                            }, 500); // Đợi nửa giây trước khi phát gợi ý
+                        }
                     };
                     
                     // Cố gắng tự động phát
@@ -326,6 +377,29 @@
                             console.log("Không thể tự động phát âm thanh:", error);
                         });
                     }
+                }
+                
+                // Xử lý phát âm thanh gợi ý
+                if (data.audio_suggestion) {
+                    suggestionAudioPlayer.style.display = 'block';
+                    
+                    // Lưu trữ audio gợi ý base64 để sử dụng lại
+                    suggestionAudioBase64 = data.audio_suggestion;
+                    
+                    // Thiết lập nguồn audio gợi ý
+                    suggestionAudioElement.src = 'data:audio/mp3;base64,' + suggestionAudioBase64;
+                    
+                    // Thiết lập nút phát lại gợi ý
+                    playSuggestionButton.onclick = function() {
+                        suggestionAudioElement.currentTime = 0; // Reset về đầu
+                        suggestionAudioElement.play();
+                        suggestionAudioStatus.textContent = 'Đang phát âm thanh gợi ý...';
+                    };
+                    
+                    // Xử lý sự kiện kết thúc của audio gợi ý
+                    suggestionAudioElement.onended = function() {
+                        suggestionAudioStatus.textContent = 'Phát âm thanh gợi ý hoàn tất.';
+                    };
                 }
             })
             .catch(error => {
