@@ -4,6 +4,7 @@ import torch
 import argparse
 import os
 import json
+import math
 from ultralytics import YOLO
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation
 
@@ -146,6 +147,102 @@ class DepthYOLOEstimator:
         
         return distance
     
+    def calculate_3d_position(self, bbox, depth_map, image_center_x, image_center_y, focal_length=1000):
+        """
+        Tính toán vị trí 3D của một đối tượng dựa trên bbox và bản đồ độ sâu
+        
+        Args:
+            bbox: Bounding box [x1, y1, x2, y2]
+            depth_map: Bản đồ độ sâu
+            image_center_x: Tọa độ x của tâm ảnh
+            image_center_y: Tọa độ y của tâm ảnh
+            focal_length: Độ dài tiêu cự của camera (pixel)
+            
+        Returns:
+            x, y, z: Tọa độ 3D của đối tượng (mét)
+        """
+        x1, y1, x2, y2 = map(int, bbox)
+        
+        # Tính tọa độ trung tâm của bbox
+        center_x = (x1 + x2) / 2
+        center_y = (y1 + y2) / 2
+        
+        # Đo độ sâu trung bình tại bbox
+        depth = self.measure_distance_to_bbox(depth_map, bbox)
+        if depth is None:
+            return None, None, None
+        
+        # Tính tọa độ 3D sử dụng phép chiếu camera
+        # Chuyển tọa độ pixel sang tọa độ thế giới
+        x = (center_x - image_center_x) * depth / focal_length
+        y = (center_y - image_center_y) * depth / focal_length
+        z = depth
+        
+        return x, y, z
+    
+    def calculate_3d_angles(self, x, y, z):
+        """
+        Tính các góc trong không gian 3D
+        
+        Args:
+            x, y, z: Tọa độ 3D của đối tượng
+            
+        Returns:
+            azimuth: Góc đứng (độ) - góc hợp với mặt phẳng XZ
+            elevation: Góc ngẩng (độ) - góc hợp với mặt phẳng XY
+            roll: Góc lăn (độ) - góc xoay quanh trục Z
+        """
+        if x is None or y is None or z is None:
+            return None, None, None
+            
+        # Tính góc phương vị (azimuth) - góc trong mặt phẳng XZ
+        # Đây là góc giữa đường thẳng từ camera đến đối tượng và trục Z dương
+        azimuth = math.degrees(math.atan2(x, z))
+        
+        # Tính góc ngẩng (elevation) - góc với mặt phẳng XZ
+        # Là góc giữa đường thẳng từ camera đến đối tượng và mặt phẳng XZ
+        distance_xz = math.sqrt(x**2 + z**2)
+        elevation = math.degrees(math.atan2(y, distance_xz))
+        
+        # Góc lăn (roll) - thường không thể xác định chỉ từ tọa độ vị trí
+        # Để tính roll cần thông tin thêm về hướng của đối tượng
+        roll = 0  # Mặc định là 0
+        
+        return azimuth, elevation, roll
+    
+    def calculate_2d_angle(self, bbox, image_center_x):
+        """
+        Tính góc của trung tâm bbox so với đường thẳng giữa (2D)
+        
+        Args:
+            bbox: Bounding box [x1, y1, x2, y2]
+            image_center_x: Tọa độ x của đường thẳng giữa
+            
+        Returns:
+            angle: Góc (độ) của trung tâm bbox so với đường thẳng giữa
+                  Góc dương: bbox nằm bên phải đường thẳng
+                  Góc âm: bbox nằm bên trái đường thẳng
+        """
+        x1, y1, x2, y2 = map(int, bbox)
+        
+        # Tính tọa độ trung tâm của bbox
+        bbox_center_x = (x1 + x2) / 2
+        bbox_center_y = (y1 + y2) / 2
+        
+        # Tính khoảng cách theo trục x từ trung tâm bbox đến đường thẳng giữa
+        dx = bbox_center_x - image_center_x
+        
+        # Tính khoảng cách theo trục y từ trung tâm bbox đến đỉnh của ảnh
+        dy = bbox_center_y
+        
+        # Tính góc (theo radian)
+        angle_rad = math.atan2(dx, dy)  # atan2(x, y) để tính góc so với trục y
+        
+        # Chuyển đổi từ radian sang độ
+        angle_deg = math.degrees(angle_rad)
+        
+        return angle_deg
+    
     def calibrate_scale_factor(self, depth_map, bbox, known_distance):
         """
         Hiệu chỉnh hệ số tỷ lệ dựa trên khoảng cách thực đã biết
@@ -180,15 +277,49 @@ class DepthYOLOEstimator:
         new_scale = known_distance / avg_depth
         return new_scale
     
-    def process_image(self, image_path, save_path=None, show_result=True, calibrate=False):
+    def draw_3d_coordinate_system(self, image, center_x, center_y, axis_length=100):
         """
-        Xử lý ảnh để phát hiện đối tượng và ước lượng khoảng cách
+        Vẽ hệ trục tọa độ 3D lên ảnh
+        
+        Args:
+            image: Ảnh đầu vào
+            center_x, center_y: Tọa độ tâm của hệ trục
+            axis_length: Độ dài của các trục
+            
+        Returns:
+            image: Ảnh với hệ trục tọa độ 3D
+        """
+        # Vẽ trục X (màu đỏ)
+        cv2.arrowedLine(image, (center_x, center_y), (center_x + axis_length, center_y), (0, 0, 255), 2)
+        cv2.putText(image, "X", (center_x + axis_length + 10, center_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        
+        # Vẽ trục Y (màu xanh lá)
+        cv2.arrowedLine(image, (center_x, center_y), (center_x, center_y - axis_length), (0, 255, 0), 2)
+        cv2.putText(image, "Y", (center_x, center_y - axis_length - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        # Vẽ trục Z (màu xanh dương) - trục này hướng ra phía trước camera
+        # Để thể hiện trục Z, ta vẽ nó nhỏ dần (hiệu ứng phối cảnh)
+        cv2.line(image, (center_x, center_y), (center_x - int(axis_length*0.5), center_y + int(axis_length*0.5)), (255, 0, 0), 2)
+        # Vẽ đầu mũi tên cho trục Z
+        arrow_points = np.array([[center_x - int(axis_length*0.5), center_y + int(axis_length*0.5)],
+                                 [center_x - int(axis_length*0.5) - 5, center_y + int(axis_length*0.5) - 5],
+                                 [center_x - int(axis_length*0.5) + 5, center_y + int(axis_length*0.5) + 5]])
+        cv2.fillPoly(image, [arrow_points], (255, 0, 0))
+        cv2.putText(image, "Z", (center_x - int(axis_length*0.5) - 20, center_y + int(axis_length*0.5) + 20), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+        
+        return image
+    
+    def process_image(self, image_path, save_path=None, show_result=True, calibrate=False, focal_length=1000):
+        """
+        Xử lý ảnh để phát hiện đối tượng và ước lượng khoảng cách trong không gian 3D
         
         Args:
             image_path: Đường dẫn đến ảnh đầu vào
             save_path: Đường dẫn để lưu ảnh kết quả (tùy chọn)
             show_result: Hiển thị kết quả
             calibrate: Bật chế độ hiệu chỉnh
+            focal_length: Độ dài tiêu cự của camera (pixel)
             
         Returns:
             result_image: Ảnh với thông tin đối tượng và khoảng cách
@@ -214,8 +345,21 @@ class DepthYOLOEstimator:
             image = cv2.resize(image, (new_w, new_h))
             print(f"Đã điều chỉnh kích thước ảnh thành {new_w}x{new_h}")
         
+        # Cập nhật kích thước h, w sau khi thay đổi kích thước
+        h, w = image.shape[:2]
+        
         # Tạo một bản sao của ảnh để vẽ lên
         result_image = image.copy()
+        
+        # Tính toán tọa độ trung tâm ảnh
+        center_x = w // 2
+        center_y = h // 2
+        
+        # Vẽ đường thẳng giữa (đường cơ sở 0 độ)
+        cv2.line(result_image, (center_x, 0), (center_x, h), (0, 255, 0), 2)
+        
+        # Vẽ hệ trục tọa độ 3D tại trung tâm ảnh
+        result_image = self.draw_3d_coordinate_system(result_image, center_x, center_y)
         
         # Phát hiện đối tượng với YOLOv11
         print("Đang phát hiện đối tượng...")
@@ -224,6 +368,9 @@ class DepthYOLOEstimator:
         # Tính toán bản đồ độ sâu
         print("Đang tính toán bản đồ độ sâu...")
         depth_map, colormap = self.estimate_depth(image)
+        
+        # Vẽ đường thẳng giữa trên bản đồ độ sâu cũng để đồng bộ hiển thị
+        cv2.line(colormap, (center_x, 0), (center_x, h), (0, 255, 0), 2)
         
         # Danh sách lưu thông tin phát hiện và khoảng cách
         detection_info = []
@@ -240,38 +387,103 @@ class DepthYOLOEstimator:
             label = detections.names[class_id]
             color = self.colors[class_id % len(self.colors)].tolist()
             
-            # Đo khoảng cách đến đối tượng
-            distance = self.measure_distance_to_bbox(depth_map, bbox)
+            # Tính toán góc 2D
+            angle_2d = self.calculate_2d_angle(bbox, center_x)
+            
+            # Tính toán vị trí 3D của đối tượng
+            x_3d, y_3d, z_3d = self.calculate_3d_position(bbox, depth_map, center_x, center_y, focal_length)
+            
+            # Tính các góc 3D
+            azimuth, elevation, roll = None, None, None
+            if x_3d is not None and y_3d is not None and z_3d is not None:
+                azimuth, elevation, roll = self.calculate_3d_angles(x_3d, y_3d, z_3d)
             
             # Vẽ bbox và thông tin
             x1, y1, x2, y2 = map(int, bbox)
             cv2.rectangle(result_image, (x1, y1), (x2, y2), color, 2)
             
-            # Tạo text hiển thị
-            if distance:
-                distance_text = f"{distance:.2f}m"
-                text = f"{label} ({conf:.2f}): {distance_text}"
-            else:
-                text = f"{label} ({conf:.2f})"
+            # Tính và vẽ trung tâm của bbox
+            center_x_bbox = (x1 + x2) // 2
+            center_y_bbox = (y1 + y2) // 2
+            cv2.circle(result_image, (center_x_bbox, center_y_bbox), 5, color, -1)
             
-            # Vẽ nhãn và khoảng cách
-            cv2.rectangle(result_image, (x1, y1 - 30), (x1 + len(text) * 10, y1), color, -1)
-            cv2.putText(result_image, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+            # Vẽ đường từ trung tâm bbox đến đường thẳng giữa
+            cv2.line(result_image, (center_x_bbox, center_y_bbox), (center_x, center_y_bbox), (0, 255, 255), 2)
+            
+            # Vẽ vector chỉ hướng 3D từ trung tâm của bbox (nếu có dữ liệu 3D)
+            if azimuth is not None and elevation is not None:
+                # Chuyển đổi góc azimuth và elevation thành vector đơn vị trong không gian 3D
+                # Sau đó áp dụng phép chiếu ngược về không gian 2D của ảnh
+                
+                # Độ dài của vector minh họa
+                vector_length = 50
+                
+                # Chuyển đổi từ góc sang vector đơn vị
+                x_dir = math.sin(math.radians(azimuth)) * math.cos(math.radians(elevation))
+                y_dir = math.sin(math.radians(elevation))
+                z_dir = math.cos(math.radians(azimuth)) * math.cos(math.radians(elevation))
+                
+                # Phép chiếu đơn giản từ 3D xuống 2D (phối cảnh)
+                # Chú ý: z_dir âm nếu đối tượng hướng về phía camera
+                x_proj = int(center_x_bbox + vector_length * x_dir)
+                y_proj = int(center_y_bbox - vector_length * y_dir)  # Trục y ngược trên ảnh
+                
+                # Vẽ mũi tên chỉ hướng 3D
+                cv2.arrowedLine(result_image, (center_x_bbox, center_y_bbox), (x_proj, y_proj), (255, 0, 255), 2)
+            
+            # Tạo text hiển thị với góc 2D và 3D
+            text_lines = []
+            text_lines.append(f"{label} ({conf:.2f})")
+            
+            if x_3d is not None:
+                distance_text = f"Dist: {z_3d:.2f}m"
+                text_lines.append(distance_text)
+                
+                pos_text = f"Pos(m): X:{x_3d:.2f}, Y:{y_3d:.2f}, Z:{z_3d:.2f}"
+                text_lines.append(pos_text)
+            
+            if azimuth is not None:
+                angle_text = f"Az:{azimuth:.1f}°, El:{elevation:.1f}°"
+                text_lines.append(angle_text)
+            
+            # Vẽ các dòng text
+            text_box_height = len(text_lines) * 20
+            cv2.rectangle(result_image, (x1, y1 - text_box_height - 5), (x1 + 250, y1), color, -1)
+            
+            for i, line in enumerate(text_lines):
+                cv2.putText(result_image, line, (x1 + 5, y1 - text_box_height + i*20), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
             
             # Lưu thông tin phát hiện
             detection_info.append({
                 'label': label,
                 'confidence': conf,
                 'bbox': bbox.tolist(),
-                'distance': distance if distance else "unknown"
+                'angle_2d': angle_2d,
+                'position_3d': (x_3d, y_3d, z_3d) if x_3d is not None else None,
+                # 'distance': z_3d,
+                'angles_3d': {
+                    'azimuth': azimuth,
+                    'elevation': elevation,
+                    'roll': roll
+                } if azimuth is not None else None
             })
+            
+            # In thông tin vào console
+            print(f"\nĐối tượng {i+1}: {label}")
+            print(f"  Độ tin cậy: {conf:.2f}")
+            if x_3d is not None:
+                print(f"  Vị trí 3D (m): X: {x_3d:.2f}, Y: {y_3d:.2f}, Z: {z_3d:.2f}")
+            if azimuth is not None:
+                print(f"  Góc 3D: Azimuth: {azimuth:.2f}°, Elevation: {elevation:.2f}°")
+            print(f"  Góc 2D: {angle_2d:.2f}°")
         
         # Hiệu chỉnh hệ số tỷ lệ nếu cần
         if calibrate and boxes.shape[0] > 0:
             print("\nChế độ hiệu chỉnh:")
             print("Các đối tượng được phát hiện:")
             for i, info in enumerate(detection_info):
-                print(f"{i+1}. {info['label']} - Khoảng cách ước lượng: {info['distance']} m")
+                print(f"{i+1}. {info['label']}")
             
             try:
                 choice = int(input("Chọn đối tượng để hiệu chỉnh (nhập số): ")) - 1
@@ -281,34 +493,8 @@ class DepthYOLOEstimator:
                     self.scale_factor = new_scale
                     print(f"Đã hiệu chỉnh hệ số tỷ lệ: {new_scale}")
                     
-                    # Cập nhật lại khoảng cách cho tất cả đối tượng
-                    for i, info in enumerate(detection_info):
-                        distance = self.measure_distance_to_bbox(depth_map, info['bbox'])
-                        detection_info[i]['distance'] = distance if distance else "unknown"
-                    
-                    # Vẽ lại ảnh kết quả với các khoảng cách đã cập nhật
-                    result_image = image.copy()
-                    for i, info in enumerate(detection_info):
-                        bbox = info['bbox']
-                        label = info['label']
-                        conf = info['confidence']
-                        distance = info['distance']
-                        
-                        # Vẽ bbox và thông tin
-                        x1, y1, x2, y2 = map(int, bbox)
-                        color = self.colors[i % len(self.colors)].tolist()
-                        cv2.rectangle(result_image, (x1, y1), (x2, y2), color, 2)
-                        
-                        # Tạo text hiển thị
-                        if distance != "unknown":
-                            distance_text = f"{distance:.2f}m"
-                            text = f"{label} ({conf:.2f}): {distance_text}"
-                        else:
-                            text = f"{label} ({conf:.2f})"
-                        
-                        # Vẽ nhãn và khoảng cách
-                        cv2.rectangle(result_image, (x1, y1 - 30), (x1 + len(text) * 10, y1), color, -1)
-                        cv2.putText(result_image, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                    # Xử lý lại ảnh với hệ số tỷ lệ mới
+                    return self.process_image(image_path, save_path, show_result, False, focal_length)
                 else:
                     print("Lựa chọn không hợp lệ.")
             except ValueError:
@@ -317,16 +503,31 @@ class DepthYOLOEstimator:
         # Tạo danh sách đối tượng đã phát hiện dạng đơn giản
         detected_objects = []
         for info in detection_info:
-            detected_objects.append({
+            obj_info = {
                 'label': info['label'],
-                'distance': info['distance'] if info['distance'] != "unknown" else None
-            })
-        
-        # In ra danh sách đối tượng
+                'angle_2d': info['angle_2d']
+            }
+            
+            # Thêm thông tin 3D nếu có
+            if info['position_3d'] is not None:
+                x_3d, y_3d, z_3d = info['position_3d']
+                obj_info['position_3d'] = {
+                    'x': x_3d,
+                    'y': y_3d,
+                    'z': z_3d
+                }
+            
+            if info['angles_3d'] is not None:
+                obj_info['angles_3d'] = info['angles_3d']
+            
+            detected_objects.append(obj_info) 
+        # In danh sách đối tượng đã phát hiện      
         print("\nDanh sách đối tượng đã phát hiện:")
         for i, obj in enumerate(detected_objects):
-            distance_str = f"{obj['distance']:.2f}m" if obj['distance'] is not None else "không xác định"
-            print(f"{i+1}. {obj['label']}: {distance_str}")
+            # Sử dụng .get() để tránh KeyError nếu 'distance' hoặc 'angles_3d' không tồn tại
+            distance_str = f"{obj.get('position_3d', {}).get('z', 'không xác định'):.2f}m" if obj.get('position_3d') else "không xác định"
+            angle_str = f"{obj.get('angles_3d', {}).get('azimuth', 0):.2f}°" if obj.get('angles_3d') else "không xác định"
+            print(f"{i+1}. {obj['label']}: {distance_str}, Góc trong không gian 3D: {angle_str}")
         
         # Kết hợp ảnh kết quả và bản đồ độ sâu
         # Thay đổi kích thước của colormap để khớp với result_image
@@ -335,8 +536,8 @@ class DepthYOLOEstimator:
         
         # Hiển thị kết quả
         if show_result:
-            cv2.namedWindow("Object Detection with Depth", cv2.WINDOW_NORMAL)
-            cv2.imshow("Object Detection with Depth", combined_image)
+            cv2.namedWindow("Object Detection with Depth and Angle", cv2.WINDOW_NORMAL)
+            cv2.imshow("Object Detection with Depth and Angle", combined_image)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
         
@@ -347,14 +548,14 @@ class DepthYOLOEstimator:
             cv2.imwrite(save_path, combined_image)
             print(f"Đã lưu ảnh kết quả tại: {save_path}")
             
-            # Lưu thông tin phát hiện thành tệp JSON
-            json_path = os.path.splitext(save_path)[0] + "_detections.json"
-            with open(json_path, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'detailed_info': detection_info,
-                    'objects_list': detected_objects
-                }, f, ensure_ascii=False, indent=4)
-            print(f"Đã lưu thông tin phát hiện tại: {json_path}")
+            # # Lưu thông tin phát hiện thành tệp JSON
+            # json_path = os.path.splitext(save_path)[0] + "_detections.json"
+            # with open(json_path, 'w', encoding='utf-8') as f:
+            #     json.dump({
+            #         'detailed_info': detection_info,
+            #         'objects_list': detected_objects
+            #     }, f, ensure_ascii=False, indent=4)
+            # print(f"Đã lưu thông tin phát hiện tại: {json_path}")
         
         return combined_image, detected_objects
 
