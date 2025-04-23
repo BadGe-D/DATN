@@ -14,3 +14,7 @@ dataset
 .gitignore
 ClassifierModel.keras
 dataset/
+yolo11n.pt
+gitignore
+result.jpg
+result_detections.json
