@@ -18,3 +18,4 @@ yolo11n.pt
 gitignore
 result.jpg
 result_detections.json
+__pycache__/
