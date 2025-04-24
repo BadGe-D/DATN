@@ -358,8 +358,8 @@ class DepthYOLOEstimator:
         # Vẽ đường thẳng giữa (đường cơ sở 0 độ)
         cv2.line(result_image, (center_x, 0), (center_x, h), (0, 255, 0), 2)
         
-        # Vẽ hệ trục tọa độ 3D tại trung tâm ảnh
-        result_image = self.draw_3d_coordinate_system(result_image, center_x, center_y)
+        # Bỏ vẽ hệ trục tọa độ 3D tại trung tâm ảnh
+        # result_image = self.draw_3d_coordinate_system(result_image, center_x, center_y)
         
         # Phát hiện đối tượng với YOLOv11
         print("Đang phát hiện đối tượng...")
@@ -410,27 +410,6 @@ class DepthYOLOEstimator:
             # Vẽ đường từ trung tâm bbox đến đường thẳng giữa
             cv2.line(result_image, (center_x_bbox, center_y_bbox), (center_x, center_y_bbox), (0, 255, 255), 2)
             
-            # Vẽ vector chỉ hướng 3D từ trung tâm của bbox (nếu có dữ liệu 3D)
-            if azimuth is not None and elevation is not None:
-                # Chuyển đổi góc azimuth và elevation thành vector đơn vị trong không gian 3D
-                # Sau đó áp dụng phép chiếu ngược về không gian 2D của ảnh
-                
-                # Độ dài của vector minh họa
-                vector_length = 50
-                
-                # Chuyển đổi từ góc sang vector đơn vị
-                x_dir = math.sin(math.radians(azimuth)) * math.cos(math.radians(elevation))
-                y_dir = math.sin(math.radians(elevation))
-                z_dir = math.cos(math.radians(azimuth)) * math.cos(math.radians(elevation))
-                
-                # Phép chiếu đơn giản từ 3D xuống 2D (phối cảnh)
-                # Chú ý: z_dir âm nếu đối tượng hướng về phía camera
-                x_proj = int(center_x_bbox + vector_length * x_dir)
-                y_proj = int(center_y_bbox - vector_length * y_dir)  # Trục y ngược trên ảnh
-                
-                # Vẽ mũi tên chỉ hướng 3D
-                cv2.arrowedLine(result_image, (center_x_bbox, center_y_bbox), (x_proj, y_proj), (255, 0, 255), 2)
-            
             # Tạo text hiển thị với góc 2D và 3D
             text_lines = []
             text_lines.append(f"{label} ({conf:.2f})")
@@ -439,16 +418,32 @@ class DepthYOLOEstimator:
                 distance_text = f"Dist: {z_3d:.2f}m"
                 text_lines.append(distance_text)
                 
-                pos_text = f"Pos(m): X:{x_3d:.2f}, Y:{y_3d:.2f}, Z:{z_3d:.2f}"
-                text_lines.append(pos_text)
+                # Bỏ hiển thị tọa độ 3D
+                # pos_text = f"Pos(m): X:{x_3d:.2f}, Y:{y_3d:.2f}, Z:{z_3d:.2f}"
+                # text_lines.append(pos_text)
             
             if azimuth is not None:
-                angle_text = f"Az:{azimuth:.1f}°, El:{elevation:.1f}°"
+                # Chỉ hiển thị góc 2D, không hiển thị các góc 3D phức tạp
+                angle_text = f"Angle: {angle_2d:.1f}°"
                 text_lines.append(angle_text)
+                
+                # Bỏ hiển thị góc azimuth, elevation
+                # angle_text = f"Az:{azimuth:.1f}°, El:{elevation:.1f}°"
+                # text_lines.append(angle_text)
             
             # Vẽ các dòng text
             text_box_height = len(text_lines) * 20
-            cv2.rectangle(result_image, (x1, y1 - text_box_height - 5), (x1 + 250, y1), color, -1)
+            # Tính toán chiều rộng cần thiết cho text box
+            max_text_width = 0
+            for line in text_lines:
+                text_size = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
+                max_text_width = max(max_text_width, text_size[0])
+            
+            # Thêm padding
+            box_width = max_text_width + 10
+            
+            # Vẽ hộp với kích thước phù hợp
+            cv2.rectangle(result_image, (x1, y1 - text_box_height - 5), (x1 + box_width, y1), color, -1)
             
             for i, line in enumerate(text_lines):
                 cv2.putText(result_image, line, (x1 + 5, y1 - text_box_height + i*20), 
@@ -530,8 +525,17 @@ class DepthYOLOEstimator:
             print(f"{i+1}. {obj['label']}: {distance_str}, Góc trong không gian 3D: {angle_str}")
         
         # Kết hợp ảnh kết quả và bản đồ độ sâu
-        # Thay đổi kích thước của colormap để khớp với result_image
+        # Thay đổi kích thước của colormap để khớp chính xác với result_image
         colormap_resized = cv2.resize(colormap, (result_image.shape[1], result_image.shape[0]))
+        
+        # Đảm bảo rằng hai ảnh có cùng kích thước chính xác
+        h1, w1 = result_image.shape[:2]
+        h2, w2 = colormap_resized.shape[:2]
+        
+        # Nếu có sự khác biệt, điều chỉnh lại kích thước
+        if h1 != h2 or w1 != w2:
+            colormap_resized = cv2.resize(colormap_resized, (w1, h1))
+        
         combined_image = cv2.hconcat([result_image, colormap_resized])
         
         # Hiển thị kết quả
@@ -594,13 +598,13 @@ class DepthYOLOEstimator:
         for i, obs in enumerate(obstacles_with_distance):
             distance = obs['distance']
             angle = obs['angle']
-            side = "thẳng" if abs(angle) < 15 else "trái" if angle < 0  else "phải"
+            side = "thẳng" if abs(angle) < 15 else "trái" if angle < 0 else "phải"
             
             obstacle_info.append(
                 f"Vật cản gần bạn thứ {i+1} cách bạn {distance:.2f}m và nằm ở góc {abs(angle):.1f}° phía {side}"
             )
         
-        # Kiểm tra các điều kiện hạn chế
+        # Kiểm tra các điều kiện hạn chế theo yêu cầu 
         straight_blocked = False
         left_blocked = False
         right_blocked = False
@@ -609,12 +613,15 @@ class DepthYOLOEstimator:
             distance = obs['distance']
             angle = obs['angle']
             
-            if distance < 0.5:  # Vật cản gần hơn 0.5m
-                if abs(angle) < 15:  # Vật cản ở phía trước (góc nhỏ)
-                    straight_blocked = True
-                elif angle < 0:  # Vật cản ở bên trái
+            # Điều kiện 1: Khoảng cách < 1.5m và |góc| < 15° -> phía thẳng không đi được
+            if distance < 1.5 and abs(angle) < 15:
+                straight_blocked = True
+            
+            # Điều kiện 2: Khoảng cách < 0.5m và |góc| > 15° -> bên trái/phải không đi được
+            if distance < 0.5 and abs(angle) > 15:
+                if angle < 0:  # Góc âm -> bên trái
                     left_blocked = True
-                else:  # Vật cản ở bên phải
+                else:  # Góc dương -> bên phải
                     right_blocked = True
         
         # Tạo lời khuyên di chuyển
@@ -628,7 +635,7 @@ class DepthYOLOEstimator:
         
         if not (straight_blocked or left_blocked or right_blocked):
             if obstacles_with_distance:
-                advice_parts.append("Đường đi an toàn, không có vật cản gần")
+                advice_parts.append("Đường đi an toàn, có vật cản nhưng khoảng cách không gần")
             else:
                 advice_parts.append("Không phát hiện vật cản nào")
         

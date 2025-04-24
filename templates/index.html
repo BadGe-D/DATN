@@ -153,6 +153,141 @@
             text-align: center;
             display: none;
         }
+        
+        .depth-result {
+            margin-top: 30px;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #e3f2fd;
+            display: none;
+        }
+        
+        .depth-image-container {
+            position: relative;
+            min-height: 400px;
+            margin: 20px 0;
+        }
+        
+        .img-comp-container {
+            position: relative;
+            height: auto;
+            max-width: 100%;
+            margin: 0 auto;
+            overflow: hidden;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        .img-comp-img {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+        
+        .img-comp-img img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .img-comp-overlay {
+            width: 50%;
+            border-right: 2px solid white;
+        }
+        
+        .img-comp-slider {
+            position: absolute;
+            z-index: 9;
+            cursor: ew-resize;
+            width: 40px;
+            height: 40px;
+            background-color: rgba(0, 123, 255, 0.7);
+            border: 3px solid white;
+            border-radius: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+        }
+        
+        .img-comp-slider:before, .img-comp-slider:after {
+            content: "";
+            position: absolute;
+            background-color: white;
+        }
+        
+        .img-comp-slider:before {
+            width: 2px;
+            height: 15px;
+            left: 15px;
+        }
+        
+        .img-comp-slider:after {
+            width: 15px;
+            height: 2px;
+            top: 16px;
+        }
+        
+        .depth-advice {
+            background-color: #e3f2fd;
+            padding: 15px;
+            border-radius: 8px;
+            white-space: pre-line;
+            text-align: left;
+            font-size: 16px;
+            color: #0d47a1;
+        }
+        
+        .depth-audio-player {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e8f5e9;
+            border-radius: 8px;
+            text-align: center;
+            display: none;
+        }
+        
+        #depthAudioStatus {
+            margin-bottom: 10px;
+            color: #2e7d32;
+        }
+        
+        #playDepthButton {
+            background-color: #2e7d32;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.2s;
+        }
+        
+        #playDepthButton:hover {
+            background-color: #28622b;
+        }
+        
+        .img-label {
+            position: absolute;
+            bottom: 10px;
+            padding: 5px 10px;
+            background-color: rgba(0, 0, 0, 0.6);
+            color: white;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .depth-map-label {
+            right: 10px;
+        }
+        
+        .detection-label {
+            left: 10px;
+        }
     </style>
 </head>
 <body>
@@ -191,6 +326,34 @@
             </div>
         </div>
         
+        <div class="depth-result" id="depthResult" style="display: none; margin-top: 30px;">
+            <h2>Phân Tích Độ Sâu Và Lời Khuyên</h2>
+            
+            <div class="depth-image-container" id="depthImageContainer">
+                <div class="img-comp-container">
+                    <div class="img-comp-img">
+                        <img id="depthImageRight" src="" alt="Bản đồ độ sâu" style="width:100%;">
+                        <div class="img-label depth-map-label">Bản đồ độ sâu</div>
+                    </div>
+                    <div class="img-comp-img img-comp-overlay">
+                        <img id="depthImageLeft" src="" alt="Kết quả phân tích" style="width:100%;">
+                        <div class="img-label detection-label">Kết quả phát hiện</div>
+                    </div>
+                    <div class="img-comp-slider"></div>
+                </div>
+            </div>
+            
+            <div class="depth-advice" id="depthAdvice" style="background-color: #e3f2fd; padding: 15px; border-radius: 8px; white-space: pre-line; text-align: left; font-size: 16px; color: #0d47a1; margin-top: 15px;">
+                <p id="depthAdviceText"></p>
+            </div>
+            
+            <div class="depth-audio-player" id="depthAudioPlayer" style="margin-top: 20px; padding: 15px; background-color: #e8f5e9; border-radius: 8px; text-align: center; display: none;">
+                <p id="depthAudioStatus">Đang chuẩn bị âm thanh phân tích...</p>
+                <button class="play-button" id="playDepthButton" style="background-color: #2e7d32;">Phát Lại Phân Tích</button>
+                <audio id="depthAudioElement" style="display: none;"></audio>
+            </div>
+        </div>
+        
     </div>
     
     <script>
@@ -217,8 +380,18 @@
         const playSuggestionButton = document.getElementById('playSuggestionButton');
         const suggestionAudioElement = document.getElementById('suggestionAudioElement');
         
+        // Thêm các phần tử mới cho phân tích độ sâu
+        const depthResult = document.getElementById('depthResult');
+        const depthImage = document.getElementById('depthImage');
+        const depthAdviceText = document.getElementById('depthAdviceText');
+        const depthAudioPlayer = document.getElementById('depthAudioPlayer');
+        const depthAudioStatus = document.getElementById('depthAudioStatus');
+        const playDepthButton = document.getElementById('playDepthButton');
+        const depthAudioElement = document.getElementById('depthAudioElement');
+        
         let audioBase64 = ''; // Biến lưu trữ audio dạng base64
         let suggestionAudioBase64 = ''; // Biến lưu trữ audio gợi ý dạng base64
+        let depthAudioBase64 = ''; // Biến lưu trữ audio phân tích độ sâu dạng base64
         
         // Xử lý sự kiện click nút Upload
         uploadBtn.addEventListener('click', () => {
@@ -297,12 +470,106 @@
                 audioPlayer.style.display = 'none';
                 suggestionResult.style.display = 'none';
                 suggestionAudioPlayer.style.display = 'none';
+                depthResult.style.display = 'none';
                 
                 // Gửi ảnh lên server để xử lý
                 uploadImage(file);
             };
             
             reader.readAsDataURL(file);
+        }
+        
+        function initImageCompare() {
+            const slider = document.querySelector(".img-comp-slider");
+            const container = document.querySelector(".img-comp-container");
+            const overlayImg = document.querySelector(".img-comp-overlay");
+            let isDragging = false;
+            
+            // Calculate aspect ratio and set container height based on image
+            function setContainerHeight() {
+                const rightImg = document.getElementById('depthImageRight');
+                if (rightImg.complete && rightImg.naturalHeight !== 0) {
+                    const ratio = rightImg.naturalHeight / rightImg.naturalWidth;
+                    const containerWidth = container.offsetWidth;
+                    container.style.height = containerWidth * ratio + 'px';
+                    document.querySelector('.depth-image-container').style.height = (containerWidth * ratio + 40) + 'px';
+                }
+            }
+            
+            // Initialize slider position
+            function positionSlider() {
+                if (!container) return;
+                const pos = 50; // Initial position (50%)
+                slider.style.left = pos + "%";
+                overlayImg.style.width = pos + "%";
+            }
+            
+            // Handle slider movement
+            function slide(x) {
+                const containerRect = container.getBoundingClientRect();
+                let pos = (x - containerRect.left) / containerRect.width * 100;
+                
+                // Limit slider position between 0% and 100%
+                pos = Math.max(0, Math.min(100, pos));
+                
+                // Update slider and overlay positions
+                slider.style.left = pos + "%";
+                overlayImg.style.width = pos + "%";
+            }
+            
+            // Add hover animation effect
+            container.addEventListener('mouseenter', () => {
+                slider.style.opacity = "1";
+            });
+            
+            container.addEventListener('mouseleave', () => {
+                if (!isDragging) {
+                    slider.style.opacity = "0.7";
+                }
+            });
+            
+            // Double click to reset position
+            container.addEventListener('dblclick', () => {
+                positionSlider();
+            });
+            
+            // Update overlay border when sliding
+            function updateOverlayBorder() {
+                overlayImg.style.borderRight = isDragging ? "3px solid white" : "2px solid white";
+            }
+            
+            slider.addEventListener('mousedown', () => {
+                isDragging = true;
+                updateOverlayBorder();
+            });
+            
+            window.addEventListener('mouseup', () => {
+                isDragging = false;
+                updateOverlayBorder();
+            });
+            
+            window.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    slide(e.clientX);
+                }
+            });
+            
+            // Touch support
+            slider.addEventListener('touchstart', () => isDragging = true, { passive: true });
+            window.addEventListener('touchend', () => isDragging = false);
+            window.addEventListener('touchcancel', () => isDragging = false);
+            window.addEventListener('touchmove', (e) => {
+                if (isDragging) {
+                    slide(e.touches[0].clientX);
+                }
+            }, { passive: true });
+            
+            // Initialize slider position
+            positionSlider();
+            
+            // Adjust container height when image loads
+            document.getElementById('depthImageRight').addEventListener('load', setContainerHeight);
+            window.addEventListener('resize', setContainerHeight);
         }
         
         function uploadImage(file) {
@@ -327,13 +594,71 @@
                 predictionText.textContent = data.prediction;
                 translationText.textContent = data.translation;
                 
-                // Hiển thị gợi ý nếu có
-                if (data.suggestion) {
-                    suggestionResult.style.display = 'block';
-                    suggestionText.textContent = data.suggestion;
+                // Ẩn phần gợi ý
+                suggestionResult.style.display = 'none';
+                
+                // Hiển thị kết quả phân tích độ sâu nếu có
+                if (data.depth_advice && data.depth_image) {
+                    depthResult.style.display = 'block';
+                    depthAdviceText.textContent = data.depth_advice;
+                    
+                    // Split the combined image
+                    const imageData = data.depth_image;
+                    
+                    // Tạo hai ảnh từ một ảnh kết hợp
+                    const img = new Image();
+                    img.onload = function() {
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        
+                        // Half of the image width for each side
+                        const halfWidth = this.width / 2;
+                        
+                        // Left image (normal image with detections)
+                        canvas.width = halfWidth;
+                        canvas.height = this.height;
+                        ctx.drawImage(img, 0, 0, halfWidth, this.height, 0, 0, halfWidth, this.height);
+                        const leftImageData = canvas.toDataURL('image/jpeg');
+                        
+                        // Right image (depth map)
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, halfWidth, 0, halfWidth, this.height, 0, 0, halfWidth, this.height);
+                        const rightImageData = canvas.toDataURL('image/jpeg');
+                        
+                        // Set images to compare - Left image is on top (overlay), Right image is on bottom
+                        document.getElementById('depthImageLeft').src = leftImageData;
+                        document.getElementById('depthImageRight').src = rightImageData;
+                        
+                        // Initialize comparison slider
+                        initImageCompare();
+                    };
+                    img.src = 'data:image/jpeg;base64,' + imageData;
+                    
+                    // Xử lý audio phân tích độ sâu
+                    if (data.depth_advice_audio) {
+                        depthAudioPlayer.style.display = 'block';
+                        
+                        // Lưu trữ audio base64 để sử dụng lại
+                        depthAudioBase64 = data.depth_advice_audio;
+                        
+                        // Thiết lập nguồn audio
+                        depthAudioElement.src = 'data:audio/mp3;base64,' + depthAudioBase64;
+                        
+                        // Thiết lập nút phát lại
+                        playDepthButton.onclick = function() {
+                            depthAudioElement.currentTime = 0; // Reset về đầu
+                            depthAudioElement.play();
+                            depthAudioStatus.textContent = 'Đang phát lời khuyên độ sâu...';
+                        };
+                        
+                        // Xử lý sự kiện kết thúc
+                        depthAudioElement.onended = function() {
+                            depthAudioStatus.textContent = 'Phát lời khuyên độ sâu hoàn tất.';
+                        };
+                    }
                 }
                 
-                // Xử lý phát âm thanh
+                // Xử lý phát âm thanh mô tả
                 if (data.audio) {
                     audioPlayer.style.display = 'block';
                     
@@ -354,11 +679,13 @@
                     audioElement.onended = function() {
                         audioStatus.textContent = 'Phát âm thanh hoàn tất.';
                         
-                        // Sau khi phát xong bản dịch, phát âm thanh gợi ý nếu có
-                        if (data.audio_suggestion) {
+                        // Phát lời khuyên độ sâu sau khi phát xong mô tả
+                        if (data.depth_advice_audio) {
                             setTimeout(() => {
-                                suggestionAudioElement.play();
-                            }, 500); // Đợi nửa giây trước khi phát gợi ý
+                                depthAudioElement.play().catch(error => {
+                                    console.log("Không thể tự động phát âm thanh lời khuyên độ sâu:", error);
+                                });
+                            }, 500); // Đợi nửa giây trước khi phát lời khuyên độ sâu
                         }
                     };
                     
@@ -377,29 +704,11 @@
                             console.log("Không thể tự động phát âm thanh:", error);
                         });
                     }
-                }
-                
-                // Xử lý phát âm thanh gợi ý
-                if (data.audio_suggestion) {
-                    suggestionAudioPlayer.style.display = 'block';
-                    
-                    // Lưu trữ audio gợi ý base64 để sử dụng lại
-                    suggestionAudioBase64 = data.audio_suggestion;
-                    
-                    // Thiết lập nguồn audio gợi ý
-                    suggestionAudioElement.src = 'data:audio/mp3;base64,' + suggestionAudioBase64;
-                    
-                    // Thiết lập nút phát lại gợi ý
-                    playSuggestionButton.onclick = function() {
-                        suggestionAudioElement.currentTime = 0; // Reset về đầu
-                        suggestionAudioElement.play();
-                        suggestionAudioStatus.textContent = 'Đang phát âm thanh gợi ý...';
-                    };
-                    
-                    // Xử lý sự kiện kết thúc của audio gợi ý
-                    suggestionAudioElement.onended = function() {
-                        suggestionAudioStatus.textContent = 'Phát âm thanh gợi ý hoàn tất.';
-                    };
+                } else if (data.depth_advice_audio) {
+                    // Nếu không có audio mô tả nhưng có audio lời khuyên độ sâu
+                    depthAudioElement.play().catch(error => {
+                        console.log("Không thể tự động phát âm thanh lời khuyên độ sâu:", error);
+                    });
                 }
             })
             .catch(error => {

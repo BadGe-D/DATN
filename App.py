@@ -22,8 +22,20 @@ import os
 import cv2
 from io import BytesIO
 import base64
+import torch
+import argparse
+import json
+import math
+from ultralytics import YOLO
+from transformers import AutoImageProcessor, AutoModelForDepthEstimation
+import sys
+sys.path.append("D:\\Python Project\\DATN")
+from depth_estimation_from_image import DepthYOLOEstimator
 
 app = Flask(__name__)
+
+# Khởi tạo mô hình DepthYOLOEstimator
+depth_estimator = DepthYOLOEstimator(yolo_model="yolo11n.pt")
 
 # Đoạn code model của bạn
 try:
@@ -121,7 +133,13 @@ def TestingBeamSearch(photo, beam_width=3):
     final_sequence = sequences[0][0]
     # Remove all occurrences of 'startseq' and 'endseq'
     final_sequence = [word for word in final_sequence if word not in ['startseq', 'endseq']]
-    return ' '.join(final_sequence)
+    result = ' '.join(final_sequence)
+    
+    # Thay thế từ "yên tĩnh" và "rõ ràng" bằng "trống trải"
+    result = result.replace("yên tĩnh", "trống trải")
+    result = result.replace("rõ ràng", "trống trải")
+    
+    return result
 
 # Apply nest_asyncio to allow nested event loops
 nest_asyncio.apply()
@@ -192,6 +210,70 @@ def classification(photo):
     # print("\n Dự đoán của mô hình: ", translated_text)
     return class_label
 
+def process_depth_estimation(image_array):
+    """
+    Xử lý ảnh với mô hình DepthYOLOEstimator
+    
+    Args:
+        image_array: Numpy array của ảnh
+        
+    Returns:
+        advice_text: Chuỗi lời khuyên từ phương thức advice
+        image_base64: Ảnh kết quả dạng base64
+    """
+    try:
+        # Tạo tệp ảnh tạm thời
+        temp_image_path = "temp_image.jpg"
+        cv2.imwrite(temp_image_path, image_array)
+        
+        # Xử lý ảnh bằng DepthYOLOEstimator
+        combined_image, detected_objects = depth_estimator.process_image(
+            image_path=temp_image_path,
+            save_path=None,
+            show_result=False
+        )
+        
+        # Lấy lời khuyên
+        advice_text = depth_estimator.advice(detected_objects)
+        
+        # Chuyển đổi ảnh kết quả sang base64
+        _, buffer = cv2.imencode('.jpg', combined_image)
+        image_base64 = base64.b64encode(buffer).decode('utf-8')
+        
+        # Xóa tệp tạm
+        if os.path.exists(temp_image_path):
+            os.remove(temp_image_path)
+            
+        return advice_text, image_base64
+    
+    except Exception as e:
+        print(f"Lỗi khi xử lý ảnh với DepthYOLOEstimator: {e}")
+        return f"Lỗi: {str(e)}", None
+
+def generate_advice_audio(advice_text, target_language='vi'):
+    """
+    Tạo audio từ văn bản lời khuyên
+    
+    Args:
+        advice_text: Chuỗi lời khuyên
+        target_language: Ngôn ngữ đích
+        
+    Returns:
+        audio_base64: Chuỗi base64 của audio
+    """
+    try:
+        tts = gTTS(text=advice_text, lang=target_language)
+        mp3_fp = BytesIO()
+        tts.write_to_fp(mp3_fp)
+        mp3_fp.seek(0)
+        
+        # Encode audio to base64 for sending to frontend
+        audio_base64 = base64.b64encode(mp3_fp.read()).decode('utf-8')
+        return audio_base64
+    except Exception as e:
+        print(f"Lỗi khi tạo audio lời khuyên: {e}")
+        return None
+
 # Route để render template HTML
 @app.route('/')
 def index():
@@ -207,23 +289,40 @@ def predict():
     img = Image.open(file.stream)
     
     try:
-        # Xử lý ảnh
-        suggestion=classification(photo=np.array(img))
+        # Bỏ phần gợi ý từ classification
+        # suggestion=classification(photo=np.array(img))
+        
+        # Xử lý ảnh cho mô tả
         image = encode(np.array(img))
         image = image.reshape((1, 2048))
         
         # Dự đoán caption
         prediction = TestingBeamSearch(photo=image)
         
-        # Tạo audio
+        # Tạo audio cho caption
         audio_data = generate_audio(prediction, target_language='vi')
-        suggestion_audio=audio_suggestion(suggestion, target_language='vi')
+        # Bỏ suggestion_audio
+        # suggestion_audio=audio_suggestion(suggestion, target_language='vi')
+        
+        # Xử lý phân tích độ sâu và đưa ra lời khuyên
+        img_array = np.array(img)
+        # Chuyển đổi từ RGB sang BGR cho OpenCV
+        if len(img_array.shape) == 3 and img_array.shape[2] == 3:
+            img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+        
+        depth_advice, depth_image = process_depth_estimation(img_array)
+        depth_advice_audio = generate_advice_audio(depth_advice, target_language='vi')
+        
         return jsonify({
             'prediction': prediction,
-            'suggestion': suggestion,
             'translation': audio_data.get('translated_text', ''),
-            'audio_suggestion': suggestion_audio.get('audio_base64', ''),
-            'audio': audio_data.get('audio_base64', '')
+            'audio': audio_data.get('audio_base64', ''),
+            'depth_advice': depth_advice,
+            'depth_image': depth_image,
+            'depth_advice_audio': depth_advice_audio
+            # Bỏ các phần liên quan đến suggestion
+            # 'suggestion': suggestion,
+            # 'audio_suggestion': suggestion_audio.get('audio_base64', ''),
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
