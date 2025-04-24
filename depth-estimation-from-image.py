@@ -558,34 +558,114 @@ class DepthYOLOEstimator:
             # print(f"Đã lưu thông tin phát hiện tại: {json_path}")
         
         return combined_image, detected_objects
+    
+    def advice(self, detected_objects):
+        """
+        Phân tích các vật cản và đưa ra lời khuyên về hướng di chuyển an toàn
+        
+        Args:
+            detected_objects: Danh sách các đối tượng đã phát hiện
+            
+        Returns:
+            advice_str: Chuỗi chứa thông tin về vật cản và lời khuyên di chuyển
+        """
+        # Lọc bỏ các đối tượng là người
+        obstacles = [obj for obj in detected_objects if obj['label'].lower() != 'person']
+        
+        # Sắp xếp các vật cản theo khoảng cách tăng dần
+        obstacles_with_distance = []
+        for obj in obstacles:
+            # Kiểm tra xem có thông tin vị trí 3D không
+            if obj.get('position_3d') is not None and obj['position_3d'].get('z') is not None:
+                # Thêm vào danh sách với khoảng cách và góc
+                distance = obj['position_3d']['z']
+                angle = obj.get('angle_2d', 0)  # Góc 2D so với trung tâm
+                obstacles_with_distance.append({
+                    'label': obj['label'],
+                    'distance': distance,
+                    'angle': angle
+                })
+        
+        # Sắp xếp theo khoảng cách
+        obstacles_with_distance.sort(key=lambda x: x['distance'])
+        
+        # Tạo thông báo về các vật cản
+        obstacle_info = []
+        for i, obs in enumerate(obstacles_with_distance):
+            distance = obs['distance']
+            angle = obs['angle']
+            side = "thẳng" if abs(angle) < 15 else "trái" if angle < 0  else "phải"
+            
+            obstacle_info.append(
+                f"Vật cản gần bạn thứ {i+1} cách bạn {distance:.2f}m và nằm ở góc {abs(angle):.1f}° phía {side}"
+            )
+        
+        # Kiểm tra các điều kiện hạn chế
+        straight_blocked = False
+        left_blocked = False
+        right_blocked = False
+        
+        for obs in obstacles_with_distance:
+            distance = obs['distance']
+            angle = obs['angle']
+            
+            if distance < 0.5:  # Vật cản gần hơn 0.5m
+                if abs(angle) < 15:  # Vật cản ở phía trước (góc nhỏ)
+                    straight_blocked = True
+                elif angle < 0:  # Vật cản ở bên trái
+                    left_blocked = True
+                else:  # Vật cản ở bên phải
+                    right_blocked = True
+        
+        # Tạo lời khuyên di chuyển
+        advice_parts = []
+        if straight_blocked:
+            advice_parts.append("Không thể đi thẳng được")
+        if left_blocked:
+            advice_parts.append("Không đi sang bên trái được")
+        if right_blocked:
+            advice_parts.append("Không đi sang bên phải được")
+        
+        if not (straight_blocked or left_blocked or right_blocked):
+            if obstacles_with_distance:
+                advice_parts.append("Đường đi an toàn, không có vật cản gần")
+            else:
+                advice_parts.append("Không phát hiện vật cản nào")
+        
+        # Kết hợp thông tin vật cản và lời khuyên
+        advice_str = "\n".join(obstacle_info)
+        if advice_parts:
+            advice_str += "\n\nGợi ý di chuyển: " + ", ".join(advice_parts)
+        
+        return advice_str
 
-def main():
-    # Tạo parser để nhận tham số dòng lệnh
-    parser = argparse.ArgumentParser(description='Phát hiện đối tượng và ước lượng khoảng cách với Depth Anything V2.')
-    parser.add_argument('--image', type=str, required=True, help='Đường dẫn đến ảnh đầu vào')
-    parser.add_argument('--yolo', type=str, default='yolo11n.pt', help='Đường dẫn đến model YOLOv11')
-    parser.add_argument('--output', type=str, default=None, help='Đường dẫn để lưu ảnh kết quả')
-    parser.add_argument('--calibrate', action='store_true', help='Bật chế độ hiệu chỉnh')
-    parser.add_argument('--no-show', action='store_true', help='Không hiển thị kết quả')
-    args = parser.parse_args()
+# def main():
+#     # Tạo parser để nhận tham số dòng lệnh
+#     parser = argparse.ArgumentParser(description='Phát hiện đối tượng và ước lượng khoảng cách với Depth Anything V2.')
+#     parser.add_argument('--image', type=str, required=True, help='Đường dẫn đến ảnh đầu vào')
+#     parser.add_argument('--yolo', type=str, default='yolo11n.pt', help='Đường dẫn đến model YOLOv11')
+#     parser.add_argument('--output', type=str, default=None, help='Đường dẫn để lưu ảnh kết quả')
+#     parser.add_argument('--calibrate', action='store_true', help='Bật chế độ hiệu chỉnh')
+#     parser.add_argument('--no-show', action='store_true', help='Không hiển thị kết quả')
+#     args = parser.parse_args()
     
-    # Khởi tạo bộ phát hiện kết hợp YOLOv11 và Depth Anything V2
-    estimator = DepthYOLOEstimator(yolo_model=args.yolo)
+#     # Khởi tạo bộ phát hiện kết hợp YOLOv11 và Depth Anything V2
+#     estimator = DepthYOLOEstimator(yolo_model=args.yolo)
     
-    # Xử lý ảnh
-    output_path = args.output
-    if not output_path and not args.no_show:
-        output_path = os.path.splitext(args.image)[0] + "_result.jpg"
+#     # Xử lý ảnh
+#     output_path = args.output
+#     if not output_path and not args.no_show:
+#         output_path = os.path.splitext(args.image)[0] + "_result.jpg"
     
-    _, detected_objects = estimator.process_image(
-        image_path=args.image,
-        save_path=output_path,
-        show_result=not args.no_show,
-        calibrate=args.calibrate
-    )
+#     _, detected_objects = estimator.process_image(
+#         image_path=args.image,
+#         save_path=output_path,
+#         show_result=not args.no_show,
+#         calibrate=args.calibrate
+#     )
     
-    # Hiển thị tổng kết
-    print(f"\nTổng cộng phát hiện được {len(detected_objects)} đối tượng.")
+#     # Hiển thị tổng kết
+#     print(f"\nTổng cộng phát hiện được {len(detected_objects)} đối tượng.")
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
