@@ -289,8 +289,8 @@ def predict():
     img = Image.open(file.stream)
     
     try:
-        # Bỏ phần gợi ý từ classification
-        # suggestion=classification(photo=np.array(img))
+        # Khôi phục phần gợi ý từ classification
+        suggestion=classification(photo=np.array(img))
         
         # Xử lý ảnh cho mô tả
         image = encode(np.array(img))
@@ -301,8 +301,9 @@ def predict():
         
         # Tạo audio cho caption
         audio_data = generate_audio(prediction, target_language='vi')
-        # Bỏ suggestion_audio
-        # suggestion_audio=audio_suggestion(suggestion, target_language='vi')
+        
+        # Khôi phục audio cho suggestion
+        suggestion_audio=audio_suggestion(suggestion, target_language='vi')
         
         # Xử lý phân tích độ sâu và đưa ra lời khuyên
         img_array = np.array(img)
@@ -315,14 +316,13 @@ def predict():
         
         return jsonify({
             'prediction': prediction,
+            'suggestion': suggestion,
             'translation': audio_data.get('translated_text', ''),
+            'audio_suggestion': suggestion_audio.get('audio_base64', ''),
             'audio': audio_data.get('audio_base64', ''),
             'depth_advice': depth_advice,
             'depth_image': depth_image,
             'depth_advice_audio': depth_advice_audio
-            # Bỏ các phần liên quan đến suggestion
-            # 'suggestion': suggestion,
-            # 'audio_suggestion': suggestion_audio.get('audio_base64', ''),
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
