@@ -355,12 +355,6 @@ class DepthYOLOEstimator:
         center_x = w // 2
         center_y = h // 2
         
-        # Vẽ đường thẳng giữa (đường cơ sở 0 độ)
-        cv2.line(result_image, (center_x, 0), (center_x, h), (0, 255, 0), 2)
-        
-        # Bỏ vẽ hệ trục tọa độ 3D tại trung tâm ảnh
-        # result_image = self.draw_3d_coordinate_system(result_image, center_x, center_y)
-        
         # Phát hiện đối tượng với YOLOv11
         print("Đang phát hiện đối tượng...")
         detections = self.detect_objects(image)
@@ -368,9 +362,6 @@ class DepthYOLOEstimator:
         # Tính toán bản đồ độ sâu
         print("Đang tính toán bản đồ độ sâu...")
         depth_map, colormap = self.estimate_depth(image)
-        
-        # Vẽ đường thẳng giữa trên bản đồ độ sâu cũng để đồng bộ hiển thị
-        cv2.line(colormap, (center_x, 0), (center_x, h), (0, 255, 0), 2)
         
         # Danh sách lưu thông tin phát hiện và khoảng cách
         detection_info = []
@@ -398,56 +389,13 @@ class DepthYOLOEstimator:
             if x_3d is not None and y_3d is not None and z_3d is not None:
                 azimuth, elevation, roll = self.calculate_3d_angles(x_3d, y_3d, z_3d)
             
-            # Vẽ bbox và thông tin
+            # Vẽ bbox đơn giản không có thông tin
             x1, y1, x2, y2 = map(int, bbox)
             cv2.rectangle(result_image, (x1, y1), (x2, y2), color, 2)
             
-            # Tính và vẽ trung tâm của bbox
-            center_x_bbox = (x1 + x2) // 2
-            center_y_bbox = (y1 + y2) // 2
-            cv2.circle(result_image, (center_x_bbox, center_y_bbox), 5, color, -1)
-            
-            # Vẽ đường từ trung tâm bbox đến đường thẳng giữa
-            cv2.line(result_image, (center_x_bbox, center_y_bbox), (center_x, center_y_bbox), (0, 255, 255), 2)
-            
-            # Tạo text hiển thị với góc 2D và 3D
-            text_lines = []
-            text_lines.append(f"{label} ({conf:.2f})")
-            
-            if x_3d is not None:
-                distance_text = f"Dist: {z_3d:.2f}m"
-                text_lines.append(distance_text)
-                
-                # Bỏ hiển thị tọa độ 3D
-                # pos_text = f"Pos(m): X:{x_3d:.2f}, Y:{y_3d:.2f}, Z:{z_3d:.2f}"
-                # text_lines.append(pos_text)
-            
-            if azimuth is not None:
-                # Chỉ hiển thị góc 2D, không hiển thị các góc 3D phức tạp
-                angle_text = f"Angle: {angle_2d:.1f}°"
-                text_lines.append(angle_text)
-                
-                # Bỏ hiển thị góc azimuth, elevation
-                # angle_text = f"Az:{azimuth:.1f}°, El:{elevation:.1f}°"
-                # text_lines.append(angle_text)
-            
-            # Vẽ các dòng text
-            text_box_height = len(text_lines) * 20
-            # Tính toán chiều rộng cần thiết cho text box
-            max_text_width = 0
-            for line in text_lines:
-                text_size = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
-                max_text_width = max(max_text_width, text_size[0])
-            
-            # Thêm padding
-            box_width = max_text_width + 10
-            
-            # Vẽ hộp với kích thước phù hợp
-            cv2.rectangle(result_image, (x1, y1 - text_box_height - 5), (x1 + box_width, y1), color, -1)
-            
-            for i, line in enumerate(text_lines):
-                cv2.putText(result_image, line, (x1 + 5, y1 - text_box_height + i*20), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+            # Hiển thị tên nhãn trên ảnh
+            text = f"{label}"
+            cv2.putText(result_image, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             
             # Lưu thông tin phát hiện
             detection_info.append({
@@ -456,7 +404,6 @@ class DepthYOLOEstimator:
                 'bbox': bbox.tolist(),
                 'angle_2d': angle_2d,
                 'position_3d': (x_3d, y_3d, z_3d) if x_3d is not None else None,
-                # 'distance': z_3d,
                 'angles_3d': {
                     'azimuth': azimuth,
                     'elevation': elevation,
@@ -551,15 +498,6 @@ class DepthYOLOEstimator:
             os.makedirs(os.path.dirname(save_path) if os.path.dirname(save_path) else '.', exist_ok=True)
             cv2.imwrite(save_path, combined_image)
             print(f"Đã lưu ảnh kết quả tại: {save_path}")
-            
-            # # Lưu thông tin phát hiện thành tệp JSON
-            # json_path = os.path.splitext(save_path)[0] + "_detections.json"
-            # with open(json_path, 'w', encoding='utf-8') as f:
-            #     json.dump({
-            #         'detailed_info': detection_info,
-            #         'objects_list': detected_objects
-            #     }, f, ensure_ascii=False, indent=4)
-            # print(f"Đã lưu thông tin phát hiện tại: {json_path}")
         
         return combined_image, detected_objects
     
@@ -583,11 +521,11 @@ class DepthYOLOEstimator:
             if obj.get('position_3d') is not None and obj['position_3d'].get('z') is not None:
                 # Thêm vào danh sách với khoảng cách và góc
                 distance = obj['position_3d']['z']
-                angle = obj.get('angle_2d', 0)  # Góc 2D so với trung tâm
+                # angle = obj.get('angles_3d', {}).get('azimuth', 0) # Góc 3D so với trung tâm - đã comment lại
                 obstacles_with_distance.append({
                     'label': obj['label'],
                     'distance': distance,
-                    'angle': angle
+                    # 'angle': angle - đã comment lại
                 })
         
         # Sắp xếp theo khoảng cách
@@ -597,52 +535,18 @@ class DepthYOLOEstimator:
         obstacle_info = []
         for i, obs in enumerate(obstacles_with_distance):
             distance = obs['distance']
-            angle = obs['angle']
-            side = "thẳng" if abs(angle) < 15 else "trái" if angle < 0 else "phải"
+            # angle = obs['angle'] - đã comment lại
+            # side = "thẳng" if abs(angle) < 15 else "trái" if angle < 0 else "phải" - đã comment lại
             
             obstacle_info.append(
-                f"Vật cản gần bạn thứ {i+1} cách bạn {distance:.2f}m và nằm ở góc {abs(angle):.1f}° phía {side}"
+                f"Vật cản thứ {i+1} cách bạn {distance:.2f}m"
             )
         
-        # Kiểm tra các điều kiện hạn chế theo yêu cầu 
-        straight_blocked = False
-        left_blocked = False
-        right_blocked = False
-        
-        for obs in obstacles_with_distance:
-            distance = obs['distance']
-            angle = obs['angle']
-            
-            # Điều kiện 1: Khoảng cách < 1.5m và |góc| < 15° -> phía thẳng không đi được
-            if distance < 1.5 and abs(angle) < 15:
-                straight_blocked = True
-            
-            # Điều kiện 2: Khoảng cách < 0.5m và |góc| > 15° -> bên trái/phải không đi được
-            if distance < 0.5 and abs(angle) > 15:
-                if angle < 0:  # Góc âm -> bên trái
-                    left_blocked = True
-                else:  # Góc dương -> bên phải
-                    right_blocked = True
-        
-        # Tạo lời khuyên di chuyển
-        advice_parts = []
-        if straight_blocked:
-            advice_parts.append("Không thể đi thẳng được")
-        if left_blocked:
-            advice_parts.append("Không đi sang bên trái được")
-        if right_blocked:
-            advice_parts.append("Không đi sang bên phải được")
-        
-        if not (straight_blocked or left_blocked or right_blocked):
-            if obstacles_with_distance:
-                advice_parts.append("Đường đi an toàn, có vật cản nhưng khoảng cách không gần")
-            else:
-                advice_parts.append("Không phát hiện vật cản nào")
-        
         # Kết hợp thông tin vật cản và lời khuyên
-        advice_str = "\n".join(obstacle_info)
-        if advice_parts:
-            advice_str += "\n\nGợi ý di chuyển: " + ", ".join(advice_parts)
+        if obstacle_info:
+            advice_str = "\n".join(obstacle_info)
+        else:
+            advice_str = "Không phát hiện vật cản nào"
         
         return advice_str
 
