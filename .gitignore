@@ -19,4 +19,4 @@ gitignore
 result.jpg
 result_detections.json
 __pycache__/
-
+test.jpg
