@@ -113,29 +113,69 @@ for w in vocab:
 MyModel = tf.keras.models.load_model('D:\\Python Project\\DATN\\model.keras')
 
 def TestingBeamSearch(photo, beam_width=3):
-    sequences = [[list(), 0.0]]  # Initialize with an empty sequence and score of 0.0
-    for _ in range(42):  # Iterate up to the maximum sequence length
+    """
+    Thực hiện beam search để tạo caption cho ảnh
+    
+    Args:
+        photo: Vector đặc trưng của ảnh (2048 chiều)
+        beam_width: Số lượng chuỗi tốt nhất được giữ lại ở mỗi bước (mặc định: 3)
+    
+    Returns:
+        Chuỗi caption được tạo ra
+    """
+    # Bước 1: Khởi tạo
+    # sequences chứa các cặp [chuỗi, điểm số]
+    # Bắt đầu với chuỗi rỗng và điểm số 0.0
+    sequences = [[list(), 0.0]]
+
+    # Bước 2: Lặp qua từng vị trí trong chuỗi
+    for _ in range(42):  # Độ dài tối đa của chuỗi là 42
+        # Danh sách chứa tất cả các ứng viên có thể
         all_candidates = []
+        
+        # Bước 3: Xử lý từng chuỗi hiện tại
         for seq, score in sequences:
+            # Kiểm tra nếu chuỗi đã kết thúc bằng 'endseq'
+            if seq and seq[-1] == 'endseq':
+                all_candidates.append([seq, score])
+                continue
+                
+            # Chuyển đổi các từ thành số (index) bằng từ điển w2i
             sequence = [w2i[w] for w in seq if w in w2i]
+            # Padding chuỗi để có độ dài 42
             sequence = pad_sequences([sequence], maxlen=42, padding="post")
+            # Dự đoán xác suất của từ tiếp theo
             yhat = MyModel.predict([photo, sequence], verbose=0)[0]
-            # Consider the top beam_width predictions
+            
+            # Bước 4: Chọn beam_width từ có xác suất cao nhất
             top_indices = np.argsort(yhat)[-beam_width:]
+            
+            # Bước 5: Tạo các ứng viên mới
             for idx in top_indices:
+                # Tạo chuỗi mới bằng cách thêm từ mới
                 candidate = seq + [i2w[idx]]
-                candidate_score = score - np.log(yhat[idx])  # Use log probability for numerical stability
+                # Tính điểm mới (sử dụng log để tránh tràn số)
+                candidate_score = score - np.log(yhat[idx])
+                # Thêm vào danh sách ứng viên
                 all_candidates.append([candidate, candidate_score])
-        # Select the top beam_width sequences
+        # Bước 6: Chọn beam_width chuỗi tốt nhất
         ordered = sorted(all_candidates, key=lambda tup: tup[1])
         sequences = ordered[:beam_width]
-    # Return the sequence with the best score
+        
+        # Kiểm tra nếu tất cả các chuỗi đã kết thúc bằng 'endseq'
+        if all(seq[-1] == 'endseq' for seq, _ in sequences):
+            break
+
+    # Bước 7: Xử lý kết quả cuối cùng
+    # Chọn chuỗi có điểm số tốt nhất
     final_sequence = sequences[0][0]
-    # Remove all occurrences of 'startseq' and 'endseq'
+    # Loại bỏ các token đặc biệt
     final_sequence = [word for word in final_sequence if word not in ['startseq', 'endseq']]
+    # Nối các từ thành câu
     result = ' '.join(final_sequence)
     
-    # Thay thế từ "yên tĩnh" và "rõ ràng" bằng "trống trải"
+    # Bước 8: Xử lý từ đồng nghĩa
+    # Thay thế một số từ cụ thể bằng từ đồng nghĩa
     result = result.replace("yên tĩnh", "trống trải")
     result = result.replace("rõ ràng", "trống trải")
     

@@ -1,0 +1,48 @@
+// TestingBeamSearch Flowchart
+digraph {
+	A [label="Bước 1: Khởi tạo
+sequences = [[[], 0.0]]" shape=box]
+	B [label="Bước 2: Lặp qua từng vị trí trong chuỗi
+(for _ in range(42))" shape=diamond]
+	C [label="Bước 3: Xử lý từng chuỗi hiện tại
+(for seq, score in sequences)" shape=diamond]
+	D [label="Kiểm tra nếu seq[-1] == \"endseq\"" shape=diamond]
+	E [label="Thêm seq vào all_candidates" shape=box]
+	F [label="Chuyển đổi seq thành số (index)
+sequence = pad_sequences(...)" shape=box]
+	G [label="Dự đoán xác suất từ tiếp theo
+yhat = MyModel.predict(...)" shape=box]
+	H [label="Chọn beam_width từ có xác suất cao nhất
+top_indices = np.argsort(yhat)[-beam_width:]" shape=box]
+	I [label="Tạo các ứng viên mới
+(candidate, candidate_score)" shape=box]
+	J [label="Thêm ứng viên vào all_candidates" shape=box]
+	K [label="Chọn beam_width chuỗi tốt nhất
+sequences = ordered[:beam_width]" shape=box]
+	L [label="Kiểm tra nếu tất cả seq[-1] == \"endseq\"" shape=diamond]
+	M [label="Kết thúc vòng lặp" shape=box]
+	N [label="Bước 7: Xử lý kết quả cuối cùng
+(final_sequence, result)" shape=box]
+	O [label="Bước 8: Xử lý từ đồng nghĩa
+(result.replace(...))" shape=box]
+	P [label="Trả về kết quả" shape=box]
+	A -> B
+	B -> C
+	C -> D
+	D -> E
+	D -> F
+	F -> G
+	G -> H
+	H -> I
+	I -> J
+	J -> K
+	K -> L
+	L -> M
+	D -> E [label=True]
+	D -> F [label=False]
+	L -> M [label=True]
+	L -> B [label=False]
+	M -> N
+	N -> O
+	O -> P
+}
